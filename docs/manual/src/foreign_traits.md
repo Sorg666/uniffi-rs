@@ -21,18 +21,18 @@ a [compatible error type](./udl/errors.md) - see below for more on error handlin
 
 For example:
 
-```rust,no_run
+```rust
 pub trait Keychain: Send + Sync + Debug {
   fn get(&self, key: String) -> Result<Option<String>, KeyChainError>;
   fn put(&self, key: String, value: String) -> Result<(), KeyChainError>;
 }
 ```
 
-If you are using macros add `#[uniffi::export]` above the trait.
+If you are using macros add `#[uniffi::export(with_foreign)]` above the trait.
 Otherwise define this trait in your UDL file:
 
 ```webidl
-[Trait]
+[Trait, WithForeign]
 interface Keychain {
     [Throws=KeyChainError]
     string? get(string key);
@@ -41,6 +41,8 @@ interface Keychain {
     void put(string key, string data);
 };
 ```
+
+The `with_foreign` / `WithForeign` attributes specify that you want to enable support for foreign implementations of that trait as well as Rust ones.
 
 ## 2. Allow it to be passed into Rust
 
@@ -55,7 +57,7 @@ interface Authenticator {
 
 In Rust we'd write:
 
-```rust,no_run
+```rust
 struct Authenticator {
   keychain: Arc<dyn Keychain>,
 }

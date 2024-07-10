@@ -112,11 +112,176 @@ Task {
 	counter.leave()
 }
 
+// Test async trait interface methods
+counter.enter()
+
+Task {
+	let traits = getSayAfterTraits()
+
+	let t0 = Date()
+	let result1 = await traits[0].sayAfter(ms: 1000, who: "Alice")
+	let result2 = await traits[1].sayAfter(ms: 1000, who: "Bob")
+	let t1 = Date()
+
+	assert(result1 == "Hello, Alice!")
+	assert(result2 == "Hello, Bob!")
+	let tDelta = DateInterval(start: t0, end: t1)
+	assert(tDelta.duration > 2 && tDelta.duration < 2.1)
+
+	counter.leave()
+}
+
+// Test UDL-defined async trait interface methods
+counter.enter()
+
+Task {
+	let traits = getSayAfterUdlTraits()
+
+	let t0 = Date()
+	let result1 = await traits[0].sayAfter(ms: 1000, who: "Alice")
+	let result2 = await traits[1].sayAfter(ms: 1000, who: "Bob")
+	let t1 = Date()
+
+	assert(result1 == "Hello, Alice!")
+	assert(result2 == "Hello, Bob!")
+	let tDelta = DateInterval(start: t0, end: t1)
+	assert(tDelta.duration > 2 && tDelta.duration < 2.1)
+
+	counter.leave()
+}
+
+// Test object with a fallible async ctor.
+counter.enter()
+
+Task {
+	do {
+		let _ = try await FallibleMegaphone()
+		fatalError("async ctor should have thrown")
+	} catch {
+		// OK!
+	}
+
+	counter.leave()
+}
+
+// Test foreign implemented async trait methods
+counter.enter()
+
+struct UnexpectedError : Error { }
+
+class SwiftAsyncParser: AsyncParser {
+    var completedDelays: Int = 0
+
+    func asString(delayMs: Int32, value: Int32) async -> String {
+        try! await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+        return String(value)
+    }
+
+    func tryFromString(delayMs: Int32, value: String) async throws -> Int32 {
+        try! await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+
+        if (value == "force-unexpected-exception") {
+            throw UnexpectedError()
+        }
+        guard let result = Int32(value) else {
+            throw ParserError.NotAnInt
+        }
+        return result
+    }
+
+    func delay(delayMs: Int32) async {
+        do {
+            try await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+        } catch is CancellationError {
+            return
+        } catch let error {
+            fatalError("Unexpected error in Task.sleep: \(error)")
+        }
+        completedDelays += 1
+    }
+
+    func tryDelay(delayMs: String) async throws {
+        guard let parsed = UInt64(delayMs) else {
+            throw ParserError.NotAnInt
+        }
+        do {
+            try await Task.sleep(nanoseconds: parsed * 1_000_000)
+        } catch is CancellationError {
+            return
+        } catch let error {
+            fatalError("Unexpected error in Task.sleep: \(error)")
+        }
+        completedDelays += 1
+    }
+}
+
+Task {
+    let traitObj = SwiftAsyncParser()
+    let result = await asStringUsingTrait(obj: traitObj, delayMs: 1, value: 42)
+    assert(result == "42")
+    let result2 = try! await tryFromStringUsingTrait(obj: traitObj, delayMs: 1, value: "42")
+    assert(result2 == 42)
+    do {
+        let _ = try await tryFromStringUsingTrait(obj: traitObj, delayMs: 1, value: "fourty-two")
+        fatalError("Expected previous statement to throw")
+    } catch ParserError.NotAnInt {
+        // Expected
+    }
+    do {
+        let _ = try await tryFromStringUsingTrait(obj: traitObj, delayMs: 1, value: "force-unexpected-exception")
+        fatalError("Expected previous statement to throw")
+    } catch ParserError.UnexpectedError {
+        // Expected
+    }
+    await delayUsingTrait(obj: traitObj, delayMs: 1)
+    try! await tryDelayUsingTrait(obj: traitObj, delayMs: "1")
+    do {
+        try await tryDelayUsingTrait(obj: traitObj, delayMs: "one")
+        fatalError("Expected previous statement to throw")
+    } catch ParserError.NotAnInt {
+        // Expected
+    }
+
+    let completedDelaysBefore = traitObj.completedDelays
+    await cancelDelayUsingTrait(obj: traitObj, delayMs: 10)
+    // sleep long enough so that the `delay()` call would finish if it wasn't cancelled.
+    try! await Task.sleep(nanoseconds: 100_000_000)
+    // If the task was cancelled, then completedDelays won't have increased
+    assert(traitObj.completedDelays == completedDelaysBefore)
+
+    // Test that all handles here cleaned up
+    assert(uniffiForeignFutureHandleCountFutures() == 0)
+
+    counter.leave()
+}
+
 // Test async function returning an object
 counter.enter()
 
 Task {
 	let megaphone = await asyncNewMegaphone()
+
+	let result = try await megaphone.fallibleMe(doFail: false)
+	assert(result == 42)
+
+	counter.leave()
+}
+
+counter.enter()
+
+Task {
+	let megaphone = await Megaphone()
+
+	let result = try await megaphone.fallibleMe(doFail: false)
+	assert(result == 42)
+
+	counter.leave()
+}
+
+counter.enter()
+
+Task {
+	let megaphone = await Megaphone.secondary()
 
 	let result = try await megaphone.fallibleMe(doFail: false)
 	assert(result == 42)

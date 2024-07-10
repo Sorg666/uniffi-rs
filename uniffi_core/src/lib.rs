@@ -42,10 +42,14 @@ pub mod ffi;
 mod ffi_converter_impls;
 mod ffi_converter_traits;
 pub mod metadata;
+mod oneshot;
 
+#[cfg(feature = "scaffolding-ffi-buffer-fns")]
+pub use ffi::ffiserialize::FfiBufferElement;
 pub use ffi::*;
 pub use ffi_converter_traits::{
-    ConvertError, FfiConverter, FfiConverterArc, Lift, LiftRef, LiftReturn, Lower, LowerReturn,
+    ConvertError, FfiConverter, FfiConverterArc, HandleAlloc, Lift, LiftRef, LiftReturn, Lower,
+    LowerError, LowerReturn, TypeId,
 };
 pub use metadata::*;
 

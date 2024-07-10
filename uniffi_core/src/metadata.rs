@@ -32,7 +32,6 @@ pub mod codes {
     pub const RECORD: u8 = 2;
     pub const ENUM: u8 = 3;
     pub const INTERFACE: u8 = 4;
-    pub const ERROR: u8 = 5;
     pub const NAMESPACE: u8 = 6;
     pub const CONSTRUCTOR: u8 = 7;
     pub const UDL_FILE: u8 = 8;
@@ -72,16 +71,20 @@ pub mod codes {
     pub const TYPE_CALLBACK_TRAIT_INTERFACE: u8 = 25;
     pub const TYPE_UNIT: u8 = 255;
 
-    // Literal codes for LiteralMetadata - note that we don't support
-    // all variants in the "emit/reader" context.
+    // Literal codes for LiteralMetadata
     pub const LIT_STR: u8 = 0;
     pub const LIT_INT: u8 = 1;
     pub const LIT_FLOAT: u8 = 2;
     pub const LIT_BOOL: u8 = 3;
-    pub const LIT_NULL: u8 = 4;
+    pub const LIT_NONE: u8 = 4;
+    pub const LIT_SOME: u8 = 5;
+    pub const LIT_EMPTY_SEQ: u8 = 6;
 }
 
-const BUF_SIZE: usize = 4096;
+// For large errors (e.g. enums) a buffer size of ~4k - ~8k
+// is not enough. See issues on Github: #1968 and #2041 and
+// for an example see fixture/large-error
+const BUF_SIZE: usize = 16384;
 
 // This struct is a kludge around the fact that Rust const generic support doesn't quite handle our
 // needs.

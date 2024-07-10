@@ -21,8 +21,6 @@ pub fn one_inner_by_ref(one: &One) -> i32 {
 #[derive(uniffi::Record)]
 pub struct Two {
     a: String,
-    #[uniffi(default = None)]
-    b: Option<Vec<bool>>,
 }
 
 #[derive(uniffi::Record)]
@@ -86,9 +84,9 @@ impl TraitWithForeign for RustTraitImpl {
 #[derive(uniffi::Object)]
 pub struct Object;
 
-#[uniffi::export]
+#[cfg_attr(feature = "myfeature", uniffi::export)]
 impl Object {
-    #[uniffi::constructor]
+    #[cfg_attr(feature = "myfeature", uniffi::constructor)]
     fn new() -> Arc<Self> {
         Arc::new(Self)
     }
@@ -146,7 +144,6 @@ fn make_hashmap(k: i8, v: u64) -> HashMap<i8, u64> {
     HashMap::from([(k, v)])
 }
 
-// XXX - fails to call this from python - https://github.com/mozilla/uniffi-rs/issues/1774
 #[uniffi::export]
 fn return_hashmap(h: HashMap<i8, u64>) -> HashMap<i8, u64> {
     h
@@ -179,6 +176,8 @@ fn call_callback_interface(cb: Box<dyn TestCallbackInterface>) {
         Err(BasicError::UnexpectedError { .. }),
     ));
     assert_eq!(42, cb.callback_handler(Object::new()));
+
+    assert_eq!(6, cb.get_other_callback_interface().multiply(2, 3));
 }
 
 // Type that's defined in the UDL and not wrapped with #[uniffi::export]
@@ -205,6 +204,20 @@ pub enum MaybeBool {
     True,
     False,
     Uncertain,
+}
+
+#[derive(uniffi::Enum)]
+pub enum MixedEnum {
+    None,
+    String(String),
+    Int(i64),
+    Both(String, i64),
+    All { s: String, i: i64 },
+}
+
+#[uniffi::export]
+fn get_mixed_enum(v: Option<MixedEnum>) -> MixedEnum {
+    v.unwrap_or(MixedEnum::Int(1))
 }
 
 #[repr(u8)]
@@ -300,6 +313,72 @@ fn get_externals(e: Option<Externals>) -> Externals {
 #[uniffi::export]
 pub fn join(parts: &[String], sep: &str) -> String {
     parts.join(sep)
+}
+
+// Custom names
+#[derive(uniffi::Object)]
+pub struct Renamed;
+
+// `renamed_new` becomes the default constructor because it's named `new`
+#[uniffi::export]
+impl Renamed {
+    #[uniffi::constructor(name = "new")]
+    fn renamed_new() -> Arc<Self> {
+        Arc::new(Self)
+    }
+
+    #[uniffi::method(name = "func")]
+    fn renamed_func(&self) -> bool {
+        true
+    }
+}
+
+#[uniffi::export(name = "rename_test")]
+fn renamed_rename_test() -> bool {
+    true
+}
+
+/// Test defaults on Records
+#[derive(uniffi::Record)]
+pub struct RecordWithDefaults {
+    no_default_string: String,
+    #[uniffi(default = true)]
+    boolean: bool,
+    #[uniffi(default = 42)]
+    integer: i32,
+    #[uniffi(default = 4.2)]
+    float_var: f64,
+    #[uniffi(default=[])]
+    vec: Vec<bool>,
+    #[uniffi(default=None)]
+    opt_vec: Option<Vec<bool>>,
+    #[uniffi(default = Some(42))]
+    opt_integer: Option<i32>,
+}
+
+/// Test defaults on top-level functions
+#[uniffi::export(default(num = 21))]
+fn double_with_default(num: i32) -> i32 {
+    num + num
+}
+
+/// Test defaults on constructors / methods
+#[derive(uniffi::Object)]
+pub struct ObjectWithDefaults {
+    num: i32,
+}
+
+#[uniffi::export]
+impl ObjectWithDefaults {
+    #[uniffi::constructor(default(num = 30))]
+    fn new(num: i32) -> Self {
+        Self { num }
+    }
+
+    #[uniffi::method(default(other = 12))]
+    fn add_to_num(&self, other: i32) -> i32 {
+        self.num + other
+    }
 }
 
 uniffi::include_scaffolding!("proc-macro");

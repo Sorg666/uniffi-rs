@@ -103,6 +103,12 @@ runBlocking {
     assertApproximateTime(time, 200, "async methods")
 }
 
+// Test async constructors
+runBlocking {
+    val megaphone = Megaphone.secondary()
+    assert(megaphone.sayAfter(1U, "hi") == "HELLO, HI!")
+}
+
 // Test async method returning optional object
 runBlocking {
     val megaphone = asyncMaybeNewMegaphone(true)
@@ -111,6 +117,106 @@ runBlocking {
     val not_megaphone = asyncMaybeNewMegaphone(false)
     assert(not_megaphone == null)
 }
+
+// Test async methods in trait interfaces
+runBlocking {
+    val traits = getSayAfterTraits()
+    val time = measureTimeMillis {
+        val result1 = traits[0].sayAfter(100U, "Alice")
+        val result2 = traits[1].sayAfter(100U, "Bob")
+
+        assert(result1 == "Hello, Alice!")
+        assert(result2 == "Hello, Bob!")
+    }
+
+    assertApproximateTime(time, 200, "async methods")
+}
+
+// Test async methods in UDL-defined trait interfaces
+runBlocking {
+    val traits = getSayAfterUdlTraits()
+    val time = measureTimeMillis {
+        val result1 = traits[0].sayAfter(100U, "Alice")
+        val result2 = traits[1].sayAfter(100U, "Bob")
+
+        assert(result1 == "Hello, Alice!")
+        assert(result2 == "Hello, Bob!")
+    }
+
+    assertApproximateTime(time, 200, "async methods")
+}
+
+// Test foreign implemented async trait methods
+class KotlinAsyncParser: AsyncParser {
+    var completedDelays: Int = 0
+
+    override suspend fun asString(delayMs: Int, value: Int): String {
+        delay(delayMs.toLong())
+        return value.toString()
+    }
+
+    override suspend fun tryFromString(delayMs: Int, value: String): Int {
+        delay(delayMs.toLong())
+        if (value == "force-unexpected-exception") {
+            throw RuntimeException("UnexpectedException")
+        }
+        try {
+            return value.toInt()
+        } catch (e: NumberFormatException) {
+            throw ParserException.NotAnInt()
+        }
+    }
+
+    override suspend fun delay(delayMs: Int) {
+        delay(delayMs.toLong())
+        completedDelays += 1
+    }
+
+    override suspend fun tryDelay(delayMs: String) {
+        val parsed = try {
+            delayMs.toLong()
+        } catch (e: NumberFormatException) {
+            throw ParserException.NotAnInt()
+        }
+        delay(parsed)
+        completedDelays += 1
+    }
+}
+
+runBlocking {
+    val traitObj = KotlinAsyncParser();
+    assert(asStringUsingTrait(traitObj, 1, 42) == "42")
+    assert(tryFromStringUsingTrait(traitObj, 1, "42") == 42)
+    try {
+        tryFromStringUsingTrait(traitObj, 1, "fourty-two")
+        throw RuntimeException("Expected last statement to throw")
+    } catch(e: ParserException.NotAnInt) {
+        // Expected
+    }
+    try {
+        tryFromStringUsingTrait(traitObj, 1, "force-unexpected-exception")
+        throw RuntimeException("Expected last statement to throw")
+    } catch(e: ParserException.UnexpectedException) {
+        // Expected
+    }
+    delayUsingTrait(traitObj, 1)
+    try {
+        tryDelayUsingTrait(traitObj, "one")
+        throw RuntimeException("Expected last statement to throw")
+    } catch(e: ParserException.NotAnInt) {
+        // Expected
+    }
+    val completedDelaysBefore = traitObj.completedDelays
+    cancelDelayUsingTrait(traitObj, 10)
+    // sleep long enough so that the `delay()` call would finish if it wasn't cancelled.
+    delay(100)
+    // If the task was cancelled, then completedDelays won't have increased
+    assert(traitObj.completedDelays == completedDelaysBefore)
+
+    // Test that all handles were cleaned up
+    assert(uniffiForeignFutureHandleCount() == 0)
+}
+
 
 // Test with the Tokio runtime.
 runBlocking {

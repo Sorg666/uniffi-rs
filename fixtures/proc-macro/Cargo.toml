@@ -10,13 +10,18 @@ publish = false
 name = "uniffi_proc_macro"
 crate-type = ["lib", "cdylib"]
 
+[features]
+default = ["myfeature"]
+myfeature = []
+
 [dependencies]
-uniffi = { path = "../../uniffi", version = "0.25" }
+# Add the "scaffolding-ffi-buffer-fns" feature to make sure things can build correctly
+uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"] }
 thiserror = "1.0"
 lazy_static = "1.4"
 
 [build-dependencies]
-uniffi = {path = "../../uniffi", version = "0.25", features = ["build"] }
+uniffi = { workspace = true, features = ["build", "scaffolding-ffi-buffer-fns"] }
 
 [dev-dependencies]
-uniffi = {path = "../../uniffi", version = "0.25", features = ["bindgen-tests"] }
+uniffi = { workspace = true, features = ["bindgen-tests"] }

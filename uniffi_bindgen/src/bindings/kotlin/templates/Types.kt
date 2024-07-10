@@ -30,6 +30,9 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
         }
     }
 
+/** Used to instantiate an interface without an actual pointer, for fakes in tests, mostly. */
+object NoPointer
+
 {%- for type_ in ci.iter_types() %}
 {%- let type_name = type_|type_name(ci) %}
 {%- let ffi_converter_name = type_|ffi_converter_name %}
@@ -131,6 +134,10 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
 {%- if ci.has_async_fns() %}
 {# Import types needed for async support #}
 {{ self.add_import("kotlin.coroutines.resume") }}
+{{ self.add_import("kotlinx.coroutines.launch") }}
 {{ self.add_import("kotlinx.coroutines.suspendCancellableCoroutine") }}
 {{ self.add_import("kotlinx.coroutines.CancellableContinuation") }}
+{{ self.add_import("kotlinx.coroutines.DelicateCoroutinesApi") }}
+{{ self.add_import("kotlinx.coroutines.Job") }}
+{{ self.add_import("kotlinx.coroutines.GlobalScope") }}
 {%- endif %}

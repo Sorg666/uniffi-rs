@@ -1,9 +1,3 @@
-### Migrating to UniFFI 0.23+
-
-- Update your `Cargo.toml` file to only depend on the `uniffi` crate.  Follow the directions from the [Prerequisites section of the manual](https://mozilla.github.io/uniffi-rs/tutorial/Prerequisites.html)
-- Create a `uniffi-bindgen` binary for your project.  Follow the directions from the [Foreign language bindings section of the manual](https://mozilla.github.io/uniffi-rs/tutorial/foreign_language_bindings.html).
-- Uninstall the system-wide `uniffi_bindgen`: `cargo uninstall uniffi_bindgen`.  (Not strictly necessary, but you won't be using it anymore).
-
 <!-- The sections in this file are managed automatically by `cargo release` -->
 <!-- See our [internal release process docs](docs/release-process.md) and for more general -->
 <!-- guidance, see https://github.com/sunng87/cargo-release/blob/master/docs/faq.md#maintaining-changelog -->
@@ -11,6 +5,137 @@
 <!-- next-header -->
 
 ## [[UnreleasedUniFFIVersion]] (backend crates: [[UnreleasedBackendVersion]]) - (_[[ReleaseDate]]_)
+
+[All changes in [[UnreleasedUniFFIVersion]]](https://github.com/mozilla/uniffi-rs/compare/v0.28.0...HEAD).
+
+## v0.28.0 (backend crates: v0.28.0) - (_2024-06-11_)
+
+### What's new?
+
+- Objects error types can now be as `Result<>` error type without wrapping them in `Arc<>`.
+
+- Swift errors now provide `localizedDescription` ([#2116](https://github.com/mozilla/uniffi-rs/pull/2116))
+
+- Procmacros support tuple-errors (ie, enums used as errors can be tuple-enums.)
+
+### What's fixed?
+- Fixed a problem with procmacro defined errors when the error was not used as an `Err` result
+  in the namespace ([#2108](https://github.com/mozilla/uniffi-rs/issues/2108))
+
+- Custom Type names are now treated as type names by all bindings. This means if they will work if they happen to be
+  keywords in the language. There's a very small risk of this being a breaking change if you used a type name which
+  did not already start with a capital letter, but this changes makes all type naming consistent.
+  ([#2073](https://github.com/mozilla/uniffi-rs/issues/2073))
+
+- Macros `uniffi::method` and `uniffi::constructor` can now be used with
+  `cfg_attr`. ([#2113](https://github.com/mozilla/uniffi-rs/pull/2113))
+
+- Python: Fix custom types generating invalid code when there are forward references.
+  ([#2067](https://github.com/mozilla/uniffi-rs/issues/2067))
+
+### What's changed?
+- The internal bindings generation has changed to make it friendlier for external language bindings.
+  However, this a **breaking change** for these bindings.
+  No consumers of any languages are impacted, only the maintainers of these language bindings.
+  ([#2066](https://github.com/mozilla/uniffi-rs/issues/2066)), ([#2094](https://github.com/mozilla/uniffi-rs/pull/2094))
+
+- The async runtime can be specified for constructors/methods, this will override the runtime specified at the impl block level.
+
+[All changes in v0.28.0](https://github.com/mozilla/uniffi-rs/compare/v0.27.3...v0.28.0).
+
+## v0.27.3 (backend crates: v0.27.3) - (_2024-06-03_)
+
+- Removed dependencies on `unicode-linebreak` and `unicode-width`.  They were being pulled in a
+  sub-dependencies for the `textwrap` crate, but weren't really useful.
+
+[All changes in v0.27.3](https://github.com/mozilla/uniffi-rs/compare/v0.27.2...v0.27.3).
+
+## v0.27.2 (backend crates: v0.27.2) - (_2024-05-15_)
+
+### What's new?
+
+- Added the `scaffolding-ffi-buffer-fns` feature.  When enabled, UniFFI will generate an alternate
+  FFI layer that can simplify the foreign bindings code.  It's currently being tested out for the
+  gecko-js external binding, but other external bindings may also find it useful.
+
+### What's changed?
+
+- Removed the dependency on the `oneshot' crate (https://github.com/mozilla/uniffi-rs/issues/1736)
+
+[All changes in v0.27.2](https://github.com/mozilla/uniffi-rs/compare/v0.27.1...v0.27.2).
+
+## v0.27.1 (backend crates: v0.27.1) - (_2024-04-03_)
+
+[All changes in v0.27.1](https://github.com/mozilla/uniffi-rs/compare/v0.27.0...v0.27.1).
+
+### What's fixed?
+
+- Fixed a regression in 0.27.0 which broke throwing constructors (#2061).
+
+- Fixed a RustBuffer memory leak (#2056)
+
+## v0.27.0 (backend crates: v0.27.0) - (_2024-03-26_)
+
+### What's new?
+
+- Constructors can be async. Alternate constructors work in Python, Kotlin and Swift;
+  only Swift supports primary constructors.
+
+- Enums created with proc macros can now produce literals for variants in Kotlin and Swift. See
+[the section on enum proc-macros](https://mozilla.github.io/uniffi-rs/proc_macro/index.html#the-uniffienum-derive) for more information.
+
+- Objects can be errors - anywhere you can specify an enum error object you can specify
+  an `Arc<Object>` - see [the manual](https://mozilla.github.io/uniffi-rs/udl/errors.html).
+
+- Functions, methods and constructors exported by procmacros can be renamed for the forgeign bindings. See the procmaco manual section.
+
+- Trait interfaces can now have async functions, both Rust and foreign-implemented.  See the futures manual section for details.
+
+- Procmacros support tuple-enums.
+
+- `RustBuffer` was changed to use `u64` fields.
+  This eliminates panics when the capacity of the vec exceeds `i32::MAX`.
+  This can happen with the current Vec implementation when String/Vec sizes approach `i32::MAX` but don't exceed it.
+
+- Proc-macro function/method arguments can now have defaults
+
+- Proc-macro record defaults now support empty vecs and Some values.
+
+- Swift: Records and Enums without object references can now be made `Sendable` Swift,
+  by opting in to new Configuration `experimental_sendable_value_types` in `uniffi.toml`.
+
+### What's fixed?
+ 
+- Fixed a memory leak in callback interface handling.
+
+### ⚠️ Breaking Changes ⚠️
+
+- Python: Force named parameters for struct constructors ([#1840](https://github.com/mozilla/uniffi-rs/pull/1840))
+- Ruby: Force named parameters for struct constructors ([#1840](https://github.com/mozilla/uniffi-rs/pull/1840))
+
+### ⚠️ Breaking Changes for external bindings authors ⚠️
+
+- The callback interface code was reworked to use vtables rather than a single callback method.
+  See https://github.com/mozilla/uniffi-rs/pull/1818 for details and how the other bindings were updated.
+- Added the `FfiType::Handle` variant.  This is a general-purpose opaque handle type used for
+  passing objects cross the FFI.  This type is always 64 bits and replaces the various older handle
+  types including:
+  - Rust futures (replacing `FfiType::RustFutureHandle` which was removed)
+  - Rust future continuation data (Replacing `FfiType::RustFutureContinuationData` which was moved).
+- `RustBuffer.len` and `RustBuffer.capacity` are now `u64` rather than `i32`.
+
+[All changes in v0.27.0](https://github.com/mozilla/uniffi-rs/compare/v0.26.1...v0.27.0).
+
+## v0.26.1 (backend crates: v0.26.1) - (_2024-01-24_)
+
+### What's fixed?
+
+- The weedle2 version is now `5.0.0` rather than `4.0.1`.  `4.0.1` was yanked because it contained a breaking change.
+- Fixed a memory leak in callback interface handling.
+
+[All changes in v0.26.1](https://github.com/mozilla/uniffi-rs/compare/v0.26.0...v0.26.1).
+
+## v0.26.0 (backend crates: v0.26.0) - (_2024-01-23_)
 
 ### What's changed?
 
@@ -20,19 +145,20 @@
 ### What's new?
 
 - Rust traits `Display`, `Hash` and `Eq` exposed to Kotlin and Swift [#1817](https://github.com/mozilla/uniffi-rs/pull/1817)
-- Foreign types can now implement trait interfaces [#1791](https://github.com/mozilla/uniffi-rs/pull/1791)
+- Foreign types can now implement trait interfaces [#1791](https://github.com/mozilla/uniffi-rs/pull/1791) and
+ [the documentation](https://mozilla.github.io/uniffi-rs/udl/interfaces.html#foreign-implementations)
   - UDL: use the `[WithForeign]` attribute
   - proc-macros: use the `#[uniffi::export(with_foreign)]` attribute
 - Generated Python code is able to specify a package name for the module [#1784](https://github.com/mozilla/uniffi-rs/pull/1784)
 - UDL can describe async function [#1834](https://github.com/mozilla/uniffi-rs/pull/1834)
 - UDL files can reference types defined in procmacros in this crate - see
   [the external types docs](https://mozilla.github.io/uniffi-rs/udl/ext_types.html)
-- Add support for [docstrings in UDL](https://mozilla.github.io/uniffi-rs/udl/docstrings.html)
-- Ability for UDL to use external trait interfaces [#1831](https://github.com/mozilla/uniffi-rs/issues/1831)
+  and also external trait interfaces [#1831](https://github.com/mozilla/uniffi-rs/issues/1831)
 - Add support for docstrings via procmacros [#1862](https://github.com/mozilla/uniffi-rs/pull/1862)
+  and [in UDL](https://mozilla.github.io/uniffi-rs/udl/docstrings.html)
 - Objects can now be returned from functions/constructors/methods without wrapping them in an `Arc<>`.
 
-[All changes in [[UnreleasedUniFFIVersion]]](https://github.com/mozilla/uniffi-rs/compare/v0.25.2...HEAD).
+[All changes in v0.26.0](https://github.com/mozilla/uniffi-rs/compare/v0.25.3...v0.26.0).
 
 ## v0.25.3 (backend crates: v0.25.3) - (_2023-12-07_)
 
@@ -183,6 +309,12 @@ Significant patches to UniFFI's builtin bindings which you will need to port inc
 * <https://github.com/mozilla/uniffi-rs/pull/1497>
 
 ## v0.23.0 (backend crates: v0.23.0) - (_2023-01-27_)
+
+### Migrating to UniFFI 0.23+
+
+- Update your `Cargo.toml` file to only depend on the `uniffi` crate.  Follow the directions from the [Prerequisites section of the manual](https://mozilla.github.io/uniffi-rs/tutorial/Prerequisites.html)
+- Create a `uniffi-bindgen` binary for your project.  Follow the directions from the [Foreign language bindings section of the manual](https://mozilla.github.io/uniffi-rs/tutorial/foreign_language_bindings.html).
+- Uninstall the system-wide `uniffi_bindgen`: `cargo uninstall uniffi_bindgen`.  (Not strictly necessary, but you won't be using it anymore).
 
 [All changes in v0.23.0](https://github.com/mozilla/uniffi-rs/compare/v0.22.0...v0.23.0).
 

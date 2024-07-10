@@ -4,13 +4,12 @@
 
 use anyhow::Result;
 use askama::Template;
+
 use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
-use std::collections::HashMap;
 
 use crate::interface::*;
-use crate::BindingsConfig;
 
 const RESERVED_WORDS: &[&str] = &[
     "alias", "and", "BEGIN", "begin", "break", "case", "class", "def", "defined?", "do", "else",
@@ -82,7 +81,7 @@ pub fn canonical_name(t: &Type) -> String {
 // since the details of the underlying component are entirely determined by the `ComponentInterface`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
-    cdylib_name: Option<String>,
+    pub(super) cdylib_name: Option<String>,
     cdylib_path: Option<String>,
 }
 
@@ -100,20 +99,6 @@ impl Config {
     pub fn cdylib_path(&self) -> String {
         self.cdylib_path.clone().unwrap_or_default()
     }
-}
-
-impl BindingsConfig for Config {
-    fn update_from_ci(&mut self, ci: &ComponentInterface) {
-        self.cdylib_name
-            .get_or_insert_with(|| format!("uniffi_{}", ci.namespace()));
-    }
-
-    fn update_from_cdylib_name(&mut self, cdylib_name: &str) {
-        self.cdylib_name
-            .get_or_insert_with(|| cdylib_name.to_string());
-    }
-
-    fn update_from_dependency_configs(&mut self, _config_map: HashMap<&str, &Self>) {}
 }
 
 #[derive(Template)]
@@ -149,16 +134,20 @@ mod filters {
             FfiType::UInt64 => ":uint64".to_string(),
             FfiType::Float32 => ":float".to_string(),
             FfiType::Float64 => ":double".to_string(),
+            FfiType::Handle => ":uint64".to_string(),
             FfiType::RustArcPtr(_) => ":pointer".to_string(),
             FfiType::RustBuffer(_) => "RustBuffer.by_value".to_string(),
+            FfiType::RustCallStatus => "RustCallStatus".to_string(),
             FfiType::ForeignBytes => "ForeignBytes".to_string(),
-            // Callback interfaces are not yet implemented, but this needs to return something in
-            // order for the coverall tests to pass.
-            FfiType::ForeignCallback => ":pointer".to_string(),
-            FfiType::RustFutureHandle
-            | FfiType::RustFutureContinuationCallback
-            | FfiType::RustFutureContinuationData => {
-                unimplemented!("Async functions are not implemented")
+            FfiType::Callback(_) => unimplemented!("FFI Callbacks not implemented"),
+            // Note: this can't just be `unimplemented!()` because some of the FFI function
+            // definitions use references.  Those FFI functions aren't actually used, so we just
+            // pick something that runs and makes some sense.  Revisit this once the references
+            // are actually implemented.
+            FfiType::Reference(_) => ":pointer".to_string(),
+            FfiType::VoidPointer => ":pointer".to_string(),
+            FfiType::Struct(_) => {
+                unimplemented!("Structs are not implemented")
             }
         })
     }
@@ -174,7 +163,8 @@ mod filters {
             }
             // use the double-quote form to match with the other languages, and quote escapes.
             Literal::String(s) => format!("\"{s}\""),
-            Literal::Null => "nil".into(),
+            Literal::None => "nil".into(),
+            Literal::Some { inner } => literal_rb(inner)?,
             Literal::EmptySequence => "[]".into(),
             Literal::EmptyMap => "{}".into(),
             Literal::Enum(v, type_) => match type_ {

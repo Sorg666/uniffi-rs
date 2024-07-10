@@ -20,7 +20,7 @@ error[E0277]: the trait bound `Result<(), ErrorType>: Lower<UniFfiTag>` is not s
   --> tests/ui/invalid_types_in_signatures.rs:20:1
    |
 20 | #[uniffi::export]
-   | ^^^^^^^^^^^^^^^^^ the trait `Lower<UniFfiTag>` is not implemented for `Result<(), ErrorType>`
+   | ^^^^^^^^^^^^^^^^^ the trait `Lower<UniFfiTag>` is not implemented for `Result<(), ErrorType>`, which is required by `Option<Result<(), ErrorType>>: LowerReturn<UniFfiTag>`
    |
    = help: the following other types implement trait `Lower<UT>`:
              bool

@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use crate::ffiops;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::path::{Path as StdPath, PathBuf};
@@ -77,10 +78,15 @@ pub fn mod_path() -> syn::Result<String> {
 
 pub fn try_read_field(f: &syn::Field) -> TokenStream {
     let ident = &f.ident;
-    let ty = &f.ty;
+    let try_read = ffiops::try_read(&f.ty);
 
-    quote! {
-        #ident: <#ty as ::uniffi::Lift<crate::UniFfiTag>>::try_read(buf)?,
+    match ident {
+        Some(ident) => quote! {
+            #ident: #try_read(buf)?,
+        },
+        None => quote! {
+            #try_read(buf)?,
+        },
     }
 }
 
@@ -105,7 +111,6 @@ pub fn create_metadata_items(
     let const_ident =
         format_ident!("UNIFFI_META_CONST_{crate_name_upper}_{kind_upper}_{name_upper}");
     let static_ident = format_ident!("UNIFFI_META_{crate_name_upper}_{kind_upper}_{name_upper}");
-
     let checksum_fn = checksum_fn_name.map(|name| {
         let ident = Ident::new(&name, Span::call_site());
         quote! {
@@ -151,13 +156,7 @@ pub fn parse_comma_separated<T: UniffiAttributeArgs>(input: ParseStream<'_>) -> 
 }
 
 #[derive(Default)]
-pub struct ArgumentNotAllowedHere;
-
-impl Parse for ArgumentNotAllowedHere {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_comma_separated(input)
-    }
-}
+struct ArgumentNotAllowedHere;
 
 impl UniffiAttributeArgs for ArgumentNotAllowedHere {
     fn parse_one(input: ParseStream<'_>) -> syn::Result<Self> {
@@ -224,7 +223,11 @@ pub(crate) fn derive_all_ffi_traits(ty: &Ident, udl_mode: bool) -> TokenStream {
     }
 }
 
-pub(crate) fn derive_ffi_traits(ty: &Ident, udl_mode: bool, trait_names: &[&str]) -> TokenStream {
+pub(crate) fn derive_ffi_traits(
+    ty: impl ToTokens,
+    udl_mode: bool,
+    trait_names: &[&str],
+) -> TokenStream {
     let trait_idents = trait_names
         .iter()
         .map(|name| Ident::new(name, Span::call_site()));
@@ -248,12 +251,17 @@ pub mod kw {
     syn::custom_keyword!(async_runtime);
     syn::custom_keyword!(callback_interface);
     syn::custom_keyword!(with_foreign);
-    syn::custom_keyword!(constructor);
     syn::custom_keyword!(default);
     syn::custom_keyword!(flat_error);
     syn::custom_keyword!(None);
+    syn::custom_keyword!(Some);
     syn::custom_keyword!(with_try_read);
+    syn::custom_keyword!(name);
     syn::custom_keyword!(non_exhaustive);
+    syn::custom_keyword!(Record);
+    syn::custom_keyword!(Enum);
+    syn::custom_keyword!(Error);
+    syn::custom_keyword!(Object);
     syn::custom_keyword!(Debug);
     syn::custom_keyword!(Display);
     syn::custom_keyword!(Eq);

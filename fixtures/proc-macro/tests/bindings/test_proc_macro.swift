@@ -55,6 +55,24 @@ do {
 
 struct SomeOtherError: Error { }
 
+// Defaults
+
+let recordWithDefaults = RecordWithDefaults(noDefaultString: "Test")
+assert(recordWithDefaults.noDefaultString == "Test")
+assert(recordWithDefaults.boolean == true)
+assert(recordWithDefaults.integer == 42)
+assert(recordWithDefaults.floatVar == 4.2)
+assert(recordWithDefaults.vec == [])
+assert(recordWithDefaults.optVec == nil)
+assert(recordWithDefaults.optInteger == 42)
+
+assert(doubleWithDefault() == 42)
+
+let objWithDefaults = ObjectWithDefaults()
+assert(objWithDefaults.addToNum() == 42)
+
+// Traits
+
 class SwiftTestCallbackInterface : TestCallbackInterface {
     func doNothing() { }
 
@@ -84,9 +102,44 @@ class SwiftTestCallbackInterface : TestCallbackInterface {
     }
 
     func callbackHandler(h: Object) -> UInt32 {
-        var v = h.takeError(e: BasicError.InvalidInput)
-        return v
+        return h.takeError(e: BasicError.InvalidInput)
+    }
+
+    func getOtherCallbackInterface() -> OtherCallbackInterface {
+        SwiftTestCallbackInterface2()
+    }
+}
+
+class SwiftTestCallbackInterface2 : OtherCallbackInterface {
+    func multiply(a: UInt32, b: UInt32) -> UInt32 {
+        return a * b;
     }
 }
 
 callCallbackInterface(cb: SwiftTestCallbackInterface())
+
+assert(getMixedEnum(v: nil) == .int(1))
+assert(getMixedEnum(v: MixedEnum.none) == .none)
+assert(getMixedEnum(v: MixedEnum.string("hello")) == .string("hello"))
+switch MixedEnum.string("hello") {
+    case let .string(s):
+        assert(s == "hello")
+    default:
+        assert(false)
+}
+
+switch MixedEnum.both("hello", 1) {
+    case let .both(s, i):
+        assert(s == "hello")
+        assert(i == 1)
+    default:
+        assert(false)
+}
+
+switch MixedEnum.all(s: "string", i: 2) {
+    case let .all(s, i):
+        assert(s == "string")
+        assert(i == 2)
+    default:
+        assert(false)
+}

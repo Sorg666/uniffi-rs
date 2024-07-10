@@ -14,12 +14,12 @@ you can use UniFFI to help you:
 You can describe your object model in an [interface definition file](https://mozilla.github.io/uniffi-rs/udl_file_spec.html)
 or [by using proc-macros](https://mozilla.github.io/uniffi-rs/proc_macro/index.html).
 
-UniFFI is currently extensively by Mozilla in Firefox mobile and desktop browsers;
+UniFFI is currently used extensively by Mozilla in Firefox mobile and desktop browsers;
 written once in Rust, auto-generated bindings allow that functionality to be called
 from both Kotlin (for Android apps) and Swift (for iOS apps).
 It also has a growing community of users shipping various cool things to many users.
 
-UniFII comes with support for **Kotlin**, **Swift**, **Python** and **Ruby** with 3rd party bindings available for **C#** and **Golang**.
+UniFFI comes with support for **Kotlin**, **Swift**, **Python** and **Ruby** with 3rd party bindings available for **C#** and **Golang**.
 Additional foreign language bindings can be developed externally and we welcome contributions to list them here.
 See [Third-party foreign language bindings](#third-party-foreign-language-bindings).
 
@@ -62,6 +62,8 @@ There are a few third-party resources that make it easier to work with UniFFI:
 
 * [Plugin support for `.udl` files](https://github.com/Lonami/uniffi-dl) for the IDEA platform ([*uniffi-dl* in the JetBrains marketplace](https://plugins.jetbrains.com/plugin/20527-uniffi-dl)). It provides syntax highlighting, code folding, code completion, reference resolution and navigation (among others features) for the [UniFFI Definition Language (UDL)](https://mozilla.github.io/uniffi-rs/).
 * [cargo swift](https://github.com/antoniusnaumann/cargo-swift), a cargo plugin to build a Swift Package from Rust code. It provides an init command for setting up a UniFFI crate and a package command for building a Swift package from Rust code - without the need for additional configuration or build scripts.
+* [Cargo NDK Gradle Plugin](https://github.com/willir/cargo-ndk-android-gradle) allows you to build Rust code using [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk), which generally makes Android library builds less painful.
+* [`uniffi-starter`](https://github.com/ianthetechie/uniffi-starter) is a minimal project demonstrates a wide range of UniFFI in a complete project in a compact manner. It includes a full Android library build process, an XCFramework generation script, and example Swift package structure. 
 
 (Please open a PR if you think other resources should be listed!)
 

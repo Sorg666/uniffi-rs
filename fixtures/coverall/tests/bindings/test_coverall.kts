@@ -253,10 +253,6 @@ fun makeCoveralls(n: Int) {
 // the garbage objects have been collected, and the Rust counter parts have been dropped.
 makeCoveralls(1000)
 
-// We could call `System.gc()` but it has unpredictable effects: it makes the
-// amount of time between creation and dropping much less, but then it seems it's needed for
-// all prompt garbage collection.
-
 class KotlinGetters : Getters {
     override fun getBool(v: Boolean, arg2: Boolean) : Boolean {
         return v != arg2
@@ -515,6 +511,25 @@ FakeCoveralls("using_fakes_and_calling_methods_without_override_crashes").use { 
     assert(exception != null)
 }
 
+FakeCoveralls("using_fallible_constructors").use { coveralls ->
+    var exception: Throwable? = null
+    try {
+        FalliblePatch()
+    } catch (e: Throwable) {
+        exception = e
+    }
+    assert(exception != null)
+
+    exception = null;
+
+    try {
+        FalliblePatch.secondary()
+    } catch (e: Throwable) {
+        exception = e
+    }
+    assert(exception != null)
+}
+
 Coveralls("using_fakes_with_real_objects_crashes").use { coveralls ->
     val patch = FakePatch(Color.RED)
     var exception: Throwable? = null
@@ -528,5 +543,15 @@ Coveralls("using_fakes_with_real_objects_crashes").use { coveralls ->
 
 // This is from an earlier GC test; ealier, we made 1000 new objects.
 // By now, the GC has had time to clean up, and now we should see 0 alive.
-assert(getNumAlive() != 1000UL) { "Num alive is ${getNumAlive()}. GC/Cleaner hasn't begun to run" };
-assert(getNumAlive() <= 500UL) { "Num alive is ${getNumAlive()}. GC/Cleaner thread has starved" };
+// (hah! Wishful-thinking there ;)
+// * We need to System.gc() and/or sleep.
+// * There's one stray thing alive, not sure what that is, but it's unrelated.
+for (i in 1..100) {
+    if (getNumAlive() <= 1UL) {
+        break
+    }
+    System.gc()
+    Thread.sleep(100)
+}
+
+assert(getNumAlive() <= 1UL) { "Num alive is ${getNumAlive()}. GC/Cleaner thread has starved" };

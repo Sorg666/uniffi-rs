@@ -39,10 +39,16 @@ mod state {
 
 mod enum_repr {
     #[derive(uniffi::Enum, Debug)]
+    #[repr(u8)]
     pub enum ReprU8 {
         One = 1,
         Three = 3,
         Fifteen = 0x0F,
+    }
+
+    #[derive(uniffi::Enum, Debug)]
+    pub enum NoRepr {
+        One = 1,
     }
 }
 
@@ -87,19 +93,19 @@ pub trait Logger {
 }
 
 pub use calc::Calculator;
-pub use error::{ComplexError, FlatError};
+pub use error::FlatError;
 pub use person::Person;
 pub use state::State;
-pub use uniffi_traits::Special;
+
 pub use weapon::Weapon;
 
 mod test_type_ids {
     use super::*;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use uniffi_core::Lower;
+    use uniffi_core::TypeId;
 
-    fn check_type_id<T: Lower<UniFfiTag>>(correct_type: Type) {
+    fn check_type_id<T: TypeId<UniFfiTag>>(correct_type: Type) {
         let buf = &mut T::TYPE_ID_META.as_ref();
         assert_eq!(
             uniffi_meta::read_metadata_type(buf).unwrap(),
@@ -201,6 +207,8 @@ mod test_metadata {
             EnumMetadata {
                 module_path: "uniffi_fixture_metadata".into(),
                 name: "Weapon".into(),
+                shape: EnumShape::Enum,
+                discr_type: None,
                 variants: vec![
                     VariantMetadata {
                         name: "Rock".into(),
@@ -234,6 +242,8 @@ mod test_metadata {
             EnumMetadata {
                 module_path: "uniffi_fixture_metadata".into(),
                 name: "State".into(),
+                shape: EnumShape::Enum,
+                discr_type: None,
                 variants: vec![
                     VariantMetadata {
                         name: "Uninitialized".into(),
@@ -280,6 +290,8 @@ mod test_metadata {
             EnumMetadata {
                 module_path: "uniffi_fixture_metadata".into(),
                 name: "ReprU8".into(),
+                shape: EnumShape::Enum,
+                discr_type: Some(Type::UInt8),
                 variants: vec![
                     VariantMetadata {
                         name: "One".into(),
@@ -307,31 +319,51 @@ mod test_metadata {
     }
 
     #[test]
+    fn test_no_repr_enum() {
+        check_metadata(
+            &enum_repr::UNIFFI_META_UNIFFI_FIXTURE_METADATA_ENUM_NOREPR,
+            EnumMetadata {
+                module_path: "uniffi_fixture_metadata".into(),
+                name: "NoRepr".into(),
+                shape: EnumShape::Enum,
+                discr_type: None,
+                variants: vec![VariantMetadata {
+                    name: "One".into(),
+                    discr: Some(LiteralMetadata::new_uint(1)),
+                    fields: vec![],
+                    docstring: None,
+                }],
+                non_exhaustive: false,
+                docstring: None,
+            },
+        );
+    }
+
+    #[test]
     fn test_simple_error() {
         check_metadata(
             &error::UNIFFI_META_UNIFFI_FIXTURE_METADATA_ERROR_FLATERROR,
-            ErrorMetadata::Enum {
-                enum_: EnumMetadata {
-                    module_path: "uniffi_fixture_metadata".into(),
-                    name: "FlatError".into(),
-                    variants: vec![
-                        VariantMetadata {
-                            name: "Overflow".into(),
-                            discr: None,
-                            fields: vec![],
-                            docstring: None,
-                        },
-                        VariantMetadata {
-                            name: "DivideByZero".into(),
-                            discr: None,
-                            fields: vec![],
-                            docstring: None,
-                        },
-                    ],
-                    non_exhaustive: false,
-                    docstring: None,
-                },
-                is_flat: true,
+            EnumMetadata {
+                module_path: "uniffi_fixture_metadata".into(),
+                name: "FlatError".into(),
+                shape: EnumShape::Error { flat: true },
+                discr_type: None,
+                variants: vec![
+                    VariantMetadata {
+                        name: "Overflow".into(),
+                        discr: None,
+                        fields: vec![],
+                        docstring: None,
+                    },
+                    VariantMetadata {
+                        name: "DivideByZero".into(),
+                        discr: None,
+                        fields: vec![],
+                        docstring: None,
+                    },
+                ],
+                non_exhaustive: false,
+                docstring: None,
             },
         );
     }
@@ -340,47 +372,46 @@ mod test_metadata {
     fn test_complex_error() {
         check_metadata(
             &error::UNIFFI_META_UNIFFI_FIXTURE_METADATA_ERROR_COMPLEXERROR,
-            ErrorMetadata::Enum {
-                enum_: EnumMetadata {
-                    module_path: "uniffi_fixture_metadata".into(),
-                    name: "ComplexError".into(),
-                    variants: vec![
-                        VariantMetadata {
-                            name: "NotFound".into(),
-                            discr: None,
-                            fields: vec![],
+            EnumMetadata {
+                module_path: "uniffi_fixture_metadata".into(),
+                name: "ComplexError".into(),
+                shape: EnumShape::Error { flat: false },
+                discr_type: None,
+                variants: vec![
+                    VariantMetadata {
+                        name: "NotFound".into(),
+                        discr: None,
+                        fields: vec![],
+                        docstring: None,
+                    },
+                    VariantMetadata {
+                        name: "PermissionDenied".into(),
+                        discr: None,
+                        fields: vec![FieldMetadata {
+                            name: "reason".into(),
+                            ty: Type::String,
+                            default: None,
                             docstring: None,
-                        },
-                        VariantMetadata {
-                            name: "PermissionDenied".into(),
-                            discr: None,
-                            fields: vec![FieldMetadata {
-                                name: "reason".into(),
-                                ty: Type::String,
-                                default: None,
-                                docstring: None,
-                            }],
+                        }],
+                        docstring: None,
+                    },
+                    VariantMetadata {
+                        name: "InvalidWeapon".into(),
+                        discr: None,
+                        fields: vec![FieldMetadata {
+                            name: "weapon".into(),
+                            ty: Type::Enum {
+                                module_path: "uniffi_fixture_metadata".into(),
+                                name: "Weapon".into(),
+                            },
+                            default: None,
                             docstring: None,
-                        },
-                        VariantMetadata {
-                            name: "InvalidWeapon".into(),
-                            discr: None,
-                            fields: vec![FieldMetadata {
-                                name: "weapon".into(),
-                                ty: Type::Enum {
-                                    module_path: "uniffi_fixture_metadata".into(),
-                                    name: "Weapon".into(),
-                                },
-                                default: None,
-                                docstring: None,
-                            }],
-                            docstring: None,
-                        },
-                    ],
-                    non_exhaustive: false,
-                    docstring: None,
-                },
-                is_flat: false,
+                        }],
+                        docstring: None,
+                    },
+                ],
+                non_exhaustive: false,
+                docstring: None,
             },
         );
     }

@@ -15,6 +15,7 @@
 # compile the rust component. The easiest way to ensure this is to bundle the Python
 # helpers directly inline like we're doing here.
 
+from __future__ import annotations
 import os
 import sys
 import ctypes
@@ -22,6 +23,9 @@ import enum
 import struct
 import contextlib
 import datetime
+import threading
+import itertools
+import traceback
 import typing
 {%- if ci.has_async_fns() %}
 import asyncio
@@ -32,23 +36,23 @@ import platform
 {%- endfor %}
 
 # Used for default argument values
-_DEFAULT = object()
+_DEFAULT = object() # type: typing.Any
 
 {% include "RustBufferTemplate.py" %}
 {% include "Helpers.py" %}
-{% include "PointerManager.py" %}
+{% include "HandleMap.py" %}
 {% include "RustBufferHelper.py" %}
 
 # Contains loading, initialization code, and the FFI Function declarations.
 {% include "NamespaceLibraryTemplate.py" %}
 
+# Public interface members begin here.
+{{ type_helper_code }}
+
 # Async support
 {%- if ci.has_async_fns() %}
 {%- include "Async.py" %}
 {%- endif %}
-
-# Public interface members begin here.
-{{ type_helper_code }}
 
 {%- for func in ci.function_definitions() %}
 {%- include "TopLevelFunctionTemplate.py" %}

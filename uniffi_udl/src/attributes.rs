@@ -456,6 +456,10 @@ impl ConstructorAttributes {
             _ => None,
         })
     }
+
+    pub(super) fn is_async(&self) -> bool {
+        self.0.iter().any(|attr| matches!(attr, Attribute::Async))
+    }
 }
 
 impl TryFrom<&weedle::attribute::ExtendedAttributeList<'_>> for ConstructorAttributes {
@@ -466,6 +470,7 @@ impl TryFrom<&weedle::attribute::ExtendedAttributeList<'_>> for ConstructorAttri
         let attrs = parse_attributes(weedle_attributes, |attr| match attr {
             Attribute::Throws(_) => Ok(()),
             Attribute::Name(_) => Ok(()),
+            Attribute::Async => Ok(()),
             _ => bail!(format!("{attr:?} not supported for constructors")),
         })?;
         Ok(Self(attrs))
@@ -824,6 +829,11 @@ mod test {
         let attrs = ConstructorAttributes::try_from(&node).unwrap();
         assert!(matches!(attrs.get_throws_err(), Some("Error")));
         assert!(matches!(attrs.get_name(), Some("MyFactory")));
+        assert!(!attrs.is_async());
+
+        let (_, node) = weedle::attribute::ExtendedAttributeList::parse("[Async]").unwrap();
+        let attrs = ConstructorAttributes::try_from(&node).unwrap();
+        assert!(attrs.is_async());
     }
 
     #[test]
@@ -846,11 +856,11 @@ mod test {
     fn test_byref_attribute() {
         let (_, node) = weedle::attribute::ExtendedAttributeList::parse("[ByRef]").unwrap();
         let attrs = ArgumentAttributes::try_from(&node).unwrap();
-        assert!(matches!(attrs.by_ref(), true));
+        assert!(attrs.by_ref());
 
         let (_, node) = weedle::attribute::ExtendedAttributeList::parse("[]").unwrap();
         let attrs = ArgumentAttributes::try_from(&node).unwrap();
-        assert!(matches!(attrs.by_ref(), false));
+        assert!(!attrs.by_ref());
     }
 
     #[test]
@@ -888,15 +898,15 @@ mod test {
     fn test_enum_attribute_on_interface() {
         let (_, node) = weedle::attribute::ExtendedAttributeList::parse("[Enum]").unwrap();
         let attrs = InterfaceAttributes::try_from(&node).unwrap();
-        assert!(matches!(attrs.contains_enum_attr(), true));
+        assert!(attrs.contains_enum_attr());
 
         let (_, node) = weedle::attribute::ExtendedAttributeList::parse("[]").unwrap();
         let attrs = InterfaceAttributes::try_from(&node).unwrap();
-        assert!(matches!(attrs.contains_enum_attr(), false));
+        assert!(!attrs.contains_enum_attr());
 
         let (_, node) = weedle::attribute::ExtendedAttributeList::parse("[Trait]").unwrap();
         let attrs = InterfaceAttributes::try_from(&node).unwrap();
-        assert!(matches!(attrs.contains_enum_attr(), false));
+        assert!(!attrs.contains_enum_attr());
 
         let (_, node) = weedle::attribute::ExtendedAttributeList::parse("[Trait, Enum]").unwrap();
         let err = InterfaceAttributes::try_from(&node).unwrap_err();

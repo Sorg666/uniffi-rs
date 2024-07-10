@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from uniffi_simple_fns import *
+import typing
 
 assert get_string() == "String created by Rust"
 assert get_int() == 1289
@@ -15,3 +16,9 @@ add_to_set(a_set, "bar")
 assert set_contains(a_set, "foo")
 assert set_contains(a_set, "bar")
 assert not set_contains(a_set, "baz")
+
+assert hash_map_identity({"a": "b"}) == {"a": "b"}
+assert typing.get_type_hints(hash_map_identity) == {
+    "h": dict[str, str],
+    "return": dict[str, str],
+}

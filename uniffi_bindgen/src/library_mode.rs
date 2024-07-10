@@ -16,16 +16,13 @@
 ///   - UniFFI can figure out the package/module names for each crate, eliminating the external
 ///     package maps.
 use crate::{
-    bindings::TargetLanguage, load_initial_config, macro_metadata, BindingGenerator,
-    BindingGeneratorDefault, BindingsConfig, ComponentInterface, Result,
+    load_initial_config, macro_metadata, BindingGenerator, Component, ComponentInterface,
+    GenerationSettings, Result,
 };
 use anyhow::{bail, Context};
 use camino::Utf8Path;
 use cargo_metadata::{MetadataCommand, Package};
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-};
+use std::{collections::HashMap, fs};
 use uniffi_meta::{
     create_metadata_groups, fixup_external_type, group_metadata, Metadata, MetadataGroup,
 };
@@ -33,95 +30,62 @@ use uniffi_meta::{
 /// Generate foreign bindings
 ///
 /// Returns the list of sources used to generate the bindings, in no particular order.
-pub fn generate_bindings(
+// XXX - we should consider killing this function and replace it with a function
+// which just locates the `Components` and returns them, leaving the filtering
+// and actual generation to the callers, which also would allow removing the potentially
+// confusing crate_name param.
+pub fn generate_bindings<T: BindingGenerator + ?Sized>(
     library_path: &Utf8Path,
     crate_name: Option<String>,
-    target_languages: &[TargetLanguage],
+    binding_generator: &T,
     config_file_override: Option<&Utf8Path>,
     out_dir: &Utf8Path,
     try_format_code: bool,
-) -> Result<Vec<Source<crate::Config>>> {
-    generate_external_bindings(
-        BindingGeneratorDefault {
-            target_languages: target_languages.into(),
-            try_format_code,
-        },
-        library_path,
-        crate_name,
-        config_file_override,
-        out_dir,
-    )
-}
-
-/// Generate foreign bindings
-///
-/// Returns the list of sources used to generate the bindings, in no particular order.
-pub fn generate_external_bindings<T: BindingGenerator>(
-    binding_generator: T,
-    library_path: &Utf8Path,
-    crate_name: Option<String>,
-    config_file_override: Option<&Utf8Path>,
-    out_dir: &Utf8Path,
-) -> Result<Vec<Source<T::Config>>> {
+) -> Result<Vec<Component<T::Config>>> {
     let cargo_metadata = MetadataCommand::new()
         .exec()
         .context("error running cargo metadata")?;
-    let cdylib_name = calc_cdylib_name(library_path);
-    binding_generator.check_library_path(library_path, cdylib_name)?;
 
-    let mut sources = find_sources(
-        &cargo_metadata,
-        library_path,
-        cdylib_name,
-        config_file_override,
-    )?;
-    for i in 0..sources.len() {
-        // Partition up the sources list because we're eventually going to call
-        // `update_from_dependency_configs()` which requires an exclusive reference to one source and
-        // shared references to all other sources.
-        let (sources_before, rest) = sources.split_at_mut(i);
-        let (source, sources_after) = rest.split_first_mut().unwrap();
-        let other_sources = sources_before.iter().chain(sources_after.iter());
-        // Calculate which configs come from dependent crates
-        let dependencies =
-            HashSet::<&str>::from_iter(source.package.dependencies.iter().map(|d| d.name.as_str()));
-        let config_map: HashMap<&str, &T::Config> = other_sources
-            .filter_map(|s| {
-                dependencies
-                    .contains(s.package.name.as_str())
-                    .then_some((s.crate_name.as_str(), &s.config))
+    let mut components = find_components(&cargo_metadata, library_path)?
+        .into_iter()
+        .map(|(ci, package)| {
+            let crate_root = package
+                .manifest_path
+                .parent()
+                .context("manifest path has no parent")?;
+            let config = binding_generator
+                .new_config(&load_initial_config(crate_root, config_file_override)?)?;
+            Ok(Component {
+                ci,
+                config,
+                package_name: Some(package.name),
             })
-            .collect();
-        // We can finally call update_from_dependency_configs
-        source.config.update_from_dependency_configs(config_map);
-    }
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let settings = GenerationSettings {
+        out_dir: out_dir.to_owned(),
+        try_format_code,
+        cdylib: calc_cdylib_name(library_path).map(ToOwned::to_owned),
+    };
+    binding_generator.update_component_configs(&settings, &mut components)?;
+
     fs::create_dir_all(out_dir)?;
     if let Some(crate_name) = &crate_name {
-        let old_elements = sources.drain(..);
+        let old_elements = components.drain(..);
         let mut matches: Vec<_> = old_elements
-            .filter(|s| &s.crate_name == crate_name)
+            .filter(|s| s.ci.crate_name() == crate_name)
             .collect();
         match matches.len() {
             0 => bail!("Crate {crate_name} not found in {library_path}"),
-            1 => sources.push(matches.pop().unwrap()),
+            1 => components.push(matches.pop().unwrap()),
             n => bail!("{n} crates named {crate_name} found in {library_path}"),
         }
     }
 
-    for source in sources.iter() {
-        binding_generator.write_bindings(&source.ci, &source.config, out_dir)?;
-    }
+    binding_generator.write_bindings(&settings, &components)?;
 
-    Ok(sources)
-}
-
-// A single source that we generate bindings for
-#[derive(Debug)]
-pub struct Source<Config: BindingsConfig> {
-    pub package: Package,
-    pub crate_name: String,
-    pub ci: ComponentInterface,
-    pub config: Config,
+    Ok(components)
 }
 
 // If `library_path` is a C dynamic library, return its name
@@ -137,12 +101,10 @@ pub fn calc_cdylib_name(library_path: &Utf8Path) -> Option<&str> {
     None
 }
 
-fn find_sources<Config: BindingsConfig>(
+fn find_components(
     cargo_metadata: &cargo_metadata::Metadata,
     library_path: &Utf8Path,
-    cdylib_name: Option<&str>,
-    config_file_override: Option<&Utf8Path>,
-) -> Result<Vec<Source<Config>>> {
+) -> Result<Vec<(ComponentInterface, Package)>> {
     let items = macro_metadata::extract_from_library(library_path)?;
     let mut metadata_groups = create_metadata_groups(&items);
     group_metadata(&mut metadata_groups, items)?;
@@ -177,27 +139,12 @@ fn find_sources<Config: BindingsConfig>(
         .into_values()
         .map(|group| {
             let package = find_package_by_crate_name(cargo_metadata, &group.namespace.crate_name)?;
-            let crate_root = package
-                .manifest_path
-                .parent()
-                .context("manifest path has no parent")?;
-            let crate_name = group.namespace.crate_name.clone();
-            let mut ci = ComponentInterface::new(&crate_name);
-            if let Some(metadata) = udl_items.remove(&crate_name) {
+            let mut ci = ComponentInterface::new(&group.namespace.crate_name);
+            if let Some(metadata) = udl_items.remove(&group.namespace.crate_name) {
                 ci.add_metadata(metadata)?;
             };
             ci.add_metadata(group)?;
-            let mut config = load_initial_config::<Config>(crate_root, config_file_override)?;
-            if let Some(cdylib_name) = cdylib_name {
-                config.update_from_cdylib_name(cdylib_name);
-            }
-            config.update_from_ci(&ci);
-            Ok(Source {
-                config,
-                crate_name,
-                ci,
-                package,
-            })
+            Ok((ci, package))
         })
         .collect()
 }

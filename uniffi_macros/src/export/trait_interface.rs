@@ -9,16 +9,16 @@ use uniffi_meta::ObjectImpl;
 
 use crate::{
     export::{
-        attributes::ExportAttributeArguments, callback_interface, gen_method_scaffolding,
-        item::ImplItem,
+        attributes::ExportTraitArgs, callback_interface, gen_method_scaffolding, item::ImplItem,
     },
+    ffiops,
     object::interface_meta_static_var,
     util::{ident_to_string, tagged_impl_header},
 };
 
 pub(super) fn gen_trait_scaffolding(
     mod_path: &str,
-    args: ExportAttributeArguments,
+    args: ExportTraitArgs,
     self_ident: Ident,
     items: Vec<ImplItem>,
     udl_mode: bool,
@@ -85,15 +85,7 @@ pub(super) fn gen_trait_scaffolding(
     let impl_tokens: TokenStream = items
         .into_iter()
         .map(|item| match item {
-            ImplItem::Method(sig) => {
-                if sig.is_async {
-                    return Err(syn::Error::new(
-                        sig.span,
-                        "async trait methods are not supported",
-                    ));
-                }
-                gen_method_scaffolding(sig, &args, udl_mode)
-            }
+            ImplItem::Method(sig) => gen_method_scaffolding(sig, None, udl_mode),
             _ => unreachable!("traits have no constructors"),
         })
         .collect::<syn::Result<_>>()?;
@@ -104,7 +96,7 @@ pub(super) fn gen_trait_scaffolding(
         } else {
             ObjectImpl::Trait
         };
-        interface_meta_static_var(&self_ident, imp, mod_path, docstring)
+        interface_meta_static_var(&self_ident, imp, mod_path, docstring.as_str())
             .unwrap_or_else(syn::Error::into_compile_error)
     });
     let ffi_converter_tokens = ffi_converter(mod_path, &self_ident, udl_mode, with_foreign);
@@ -148,6 +140,8 @@ pub(crate) fn ffi_converter(
     } else {
         quote! { ::uniffi::metadata::codes::TYPE_TRAIT_INTERFACE }
     };
+    let lower_self = ffiops::lower(quote! { ::std::sync::Arc<Self> });
+    let try_lift_self = ffiops::try_lift(quote! { ::std::sync::Arc<Self> });
 
     quote! {
         // All traits must be `Sync + Send`. The generated scaffolding will fail to compile
@@ -169,15 +163,14 @@ pub(crate) fn ffi_converter(
                 ::uniffi::deps::static_assertions::const_assert!(::std::mem::size_of::<*const ::std::ffi::c_void>() <= 8);
                 ::uniffi::deps::bytes::BufMut::put_u64(
                     buf,
-                    <Self as ::uniffi::FfiConverterArc<crate::UniFfiTag>>::lower(obj) as u64,
+                    #lower_self(obj) as u64,
                 );
             }
 
             fn try_read(buf: &mut &[u8]) -> ::uniffi::Result<::std::sync::Arc<Self>> {
                 ::uniffi::deps::static_assertions::const_assert!(::std::mem::size_of::<*const ::std::ffi::c_void>() <= 8);
                 ::uniffi::check_remaining(buf, 8)?;
-                <Self as ::uniffi::FfiConverterArc<crate::UniFfiTag>>::try_lift(
-                    ::uniffi::deps::bytes::Buf::get_u64(buf) as Self::FfiType)
+                #try_lift_self(::uniffi::deps::bytes::Buf::get_u64(buf) as Self::FfiType)
             }
 
             const TYPE_ID_META: ::uniffi::MetadataBuffer = ::uniffi::MetadataBuffer::from_code(#metadata_code)

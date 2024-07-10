@@ -20,7 +20,7 @@ use self::{
     },
 };
 use crate::util::{ident_to_string, mod_path};
-pub use attributes::ExportAttributeArguments;
+pub use attributes::{AsyncRuntime, DefaultMap, ExportFnArgs};
 pub use callback_interface::ffi_converter_callback_interface_impl;
 
 // TODO(jplatte): Ensure no generics, …
@@ -28,7 +28,7 @@ pub use callback_interface::ffi_converter_callback_interface_impl;
 
 pub(crate) fn expand_export(
     mut item: Item,
-    args: ExportAttributeArguments,
+    all_args: proc_macro::TokenStream,
     udl_mode: bool,
 ) -> syn::Result<TokenStream> {
     let mod_path = mod_path()?;
@@ -38,11 +38,17 @@ pub(crate) fn expand_export(
     // new functions outside of the `impl`).
     rewrite_self_type(&mut item);
 
-    let metadata = ExportItem::new(item, &args)?;
+    let metadata = ExportItem::new(item, all_args)?;
 
     match metadata {
-        ExportItem::Function { sig } => gen_fn_scaffolding(sig, &args, udl_mode),
-        ExportItem::Impl { items, self_ident } => {
+        ExportItem::Function { sig, args } => {
+            gen_fn_scaffolding(sig, args.async_runtime.as_ref(), udl_mode)
+        }
+        ExportItem::Impl {
+            items,
+            self_ident,
+            args,
+        } => {
             if let Some(rt) = &args.async_runtime {
                 if items
                     .iter()
@@ -58,8 +64,16 @@ pub(crate) fn expand_export(
             let item_tokens: TokenStream = items
                 .into_iter()
                 .map(|item| match item {
-                    ImplItem::Constructor(sig) => gen_constructor_scaffolding(sig, &args, udl_mode),
-                    ImplItem::Method(sig) => gen_method_scaffolding(sig, &args, udl_mode),
+                    ImplItem::Constructor(sig) => {
+                        let async_runtime =
+                            sig.async_runtime.clone().or(args.async_runtime.clone());
+                        gen_constructor_scaffolding(sig, async_runtime.as_ref(), udl_mode)
+                    }
+                    ImplItem::Method(sig) => {
+                        let async_runtime =
+                            sig.async_runtime.clone().or(args.async_runtime.clone());
+                        gen_method_scaffolding(sig, async_runtime.as_ref(), udl_mode)
+                    }
                 })
                 .collect::<syn::Result<_>>()?;
             Ok(quote_spanned! { self_ident.span() => #item_tokens })
@@ -70,6 +84,7 @@ pub(crate) fn expand_export(
             with_foreign,
             callback_interface_only: false,
             docstring,
+            args,
         } => trait_interface::gen_trait_scaffolding(
             &mod_path,
             args,
@@ -110,6 +125,7 @@ pub(crate) fn expand_export(
         ExportItem::Struct {
             self_ident,
             uniffi_traits,
+            ..
         } => {
             assert!(!udl_mode);
             utrait::expand_uniffi_trait_export(self_ident, uniffi_traits)

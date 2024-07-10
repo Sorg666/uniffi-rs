@@ -52,8 +52,7 @@ impl<'a> MetadataReader<'a> {
             codes::CONSTRUCTOR => self.read_constructor()?.into(),
             codes::METHOD => self.read_method()?.into(),
             codes::RECORD => self.read_record()?.into(),
-            codes::ENUM => self.read_enum(false)?.into(),
-            codes::ERROR => self.read_error()?.into(),
+            codes::ENUM => self.read_enum()?.into(),
             codes::INTERFACE => self.read_object(ObjectImpl::Struct)?.into(),
             codes::TRAIT_INTERFACE => self.read_object(ObjectImpl::Trait)?.into(),
             codes::CALLBACK_TRAIT_INTERFACE => self.read_object(ObjectImpl::CallbackTrait)?.into(),
@@ -248,6 +247,7 @@ impl<'a> MetadataReader<'a> {
         let module_path = self.read_string()?;
         let self_name = self.read_string()?;
         let name = self.read_string()?;
+        let is_async = self.read_bool()?;
         let inputs = self.read_inputs()?;
         let (return_type, throws) = self.read_return_type()?;
         let docstring = self.read_optional_long_string()?;
@@ -259,11 +259,12 @@ impl<'a> MetadataReader<'a> {
                     Type::Object { name, imp: ObjectImpl::Struct, .. } if name == &self_name
                 )
             })
-            .context("Constructor return type must be Arc<Self>")?;
+            .context("Constructor return type must be Self or Arc<Self>")?;
 
         Ok(ConstructorMetadata {
             module_path,
             self_name,
+            is_async,
             name,
             inputs,
             throws,
@@ -303,28 +304,29 @@ impl<'a> MetadataReader<'a> {
         })
     }
 
-    fn read_enum(&mut self, is_flat_error: bool) -> Result<EnumMetadata> {
+    fn read_enum(&mut self) -> Result<EnumMetadata> {
         let module_path = self.read_string()?;
         let name = self.read_string()?;
-        let variants = if is_flat_error {
-            self.read_flat_variants()?
+        let shape = EnumShape::from(self.read_u8()?)?;
+        let discr_type = if self.read_bool()? {
+            Some(self.read_type()?)
         } else {
-            self.read_variants()?
+            None
+        };
+        let variants = match shape {
+            EnumShape::Enum | EnumShape::Error { flat: false } => self.read_variants()?,
+            EnumShape::Error { flat: true } => self.read_flat_variants()?,
         };
 
         Ok(EnumMetadata {
             module_path,
             name,
+            shape,
+            discr_type,
             variants,
             non_exhaustive: self.read_bool()?,
             docstring: self.read_optional_long_string()?,
         })
-    }
-
-    fn read_error(&mut self) -> Result<ErrorMetadata> {
-        let is_flat = self.read_bool()?;
-        let enum_ = self.read_enum(is_flat)?;
-        Ok(ErrorMetadata::Enum { enum_, is_flat })
     }
 
     fn read_object(&mut self, imp: ObjectImpl) -> Result<ObjectMetadata> {
@@ -399,7 +401,7 @@ impl<'a> MetadataReader<'a> {
             .map(|_| {
                 let name = self.read_string()?;
                 let ty = self.read_type()?;
-                let default = self.read_default(&name, &ty)?;
+                let default = self.read_optional_default(&name, &ty)?;
                 Ok(FieldMetadata {
                     name,
                     ty,
@@ -416,7 +418,7 @@ impl<'a> MetadataReader<'a> {
             .map(|_| {
                 Ok(VariantMetadata {
                     name: self.read_string()?,
-                    discr: self.read_default("<variant-value>", &Type::UInt64)?,
+                    discr: self.read_optional_default("<variant-value>", &Type::UInt64)?,
                     fields: self.read_fields()?,
                     docstring: self.read_optional_long_string()?,
                 })
@@ -442,13 +444,16 @@ impl<'a> MetadataReader<'a> {
         let len = self.read_u8()?;
         (0..len)
             .map(|_| {
+                let name = self.read_string()?;
+                let ty = self.read_type()?;
+                let default = self.read_optional_default(&name, &ty)?;
                 Ok(FnParamMetadata {
-                    name: self.read_string()?,
-                    ty: self.read_type()?,
+                    name,
+                    ty,
+                    default,
                     // not emitted by macros
                     by_ref: false,
                     optional: false,
-                    default: None,
                 })
             })
             .collect()
@@ -460,14 +465,18 @@ impl<'a> MetadataReader<'a> {
         Some(checksum_metadata(metadata_buf))
     }
 
-    fn read_default(&mut self, name: &str, ty: &Type) -> Result<Option<LiteralMetadata>> {
-        let has_default = self.read_bool()?;
-        if !has_default {
-            return Ok(None);
+    fn read_optional_default(&mut self, name: &str, ty: &Type) -> Result<Option<LiteralMetadata>> {
+        if self.read_bool()? {
+            Ok(Some(self.read_default(name, ty)?))
+        } else {
+            Ok(None)
         }
+    }
 
+    fn read_default(&mut self, name: &str, ty: &Type) -> Result<LiteralMetadata> {
         let literal_kind = self.read_u8()?;
-        Ok(Some(match literal_kind {
+
+        Ok(match literal_kind {
             codes::LIT_STR => {
                 ensure!(
                     matches!(ty, Type::String),
@@ -477,12 +486,24 @@ impl<'a> MetadataReader<'a> {
             }
             codes::LIT_INT => {
                 let base10_digits = self.read_string()?;
+                // procmacros emit the type for discriminant values based purely on whether the constant
+                // is positive or negative.
+                let ty = if !base10_digits.is_empty()
+                    && base10_digits.as_bytes()[0] == b'-'
+                    && ty == &Type::UInt64
+                {
+                    &Type::Int64
+                } else {
+                    ty
+                };
                 macro_rules! parse_int {
                     ($ty:ident, $variant:ident) => {
                         LiteralMetadata::$variant(
                             base10_digits
                                 .parse::<$ty>()
-                                .with_context(|| format!("parsing default for field {name}"))?
+                                .with_context(|| {
+                                    format!("parsing default for field {name}: {base10_digits}")
+                                })?
                                 .into(),
                             Radix::Decimal,
                             ty.to_owned(),
@@ -513,8 +534,18 @@ impl<'a> MetadataReader<'a> {
                 }
             },
             codes::LIT_BOOL => LiteralMetadata::Boolean(self.read_bool()?),
-            codes::LIT_NULL => LiteralMetadata::Null,
+            codes::LIT_NONE => match ty {
+                Type::Optional { .. } => LiteralMetadata::None,
+                _ => bail!("field {name} of type {ty:?} can't have a default value of None"),
+            },
+            codes::LIT_SOME => match ty {
+                Type::Optional { inner_type, .. } => LiteralMetadata::Some {
+                    inner: Box::new(self.read_default(name, inner_type)?),
+                },
+                _ => bail!("field {name} of type {ty:?} can't have a default value of None"),
+            },
+            codes::LIT_EMPTY_SEQ => LiteralMetadata::EmptySequence,
             _ => bail!("Unexpected literal kind code: {literal_kind:?}"),
-        }))
+        })
     }
 }

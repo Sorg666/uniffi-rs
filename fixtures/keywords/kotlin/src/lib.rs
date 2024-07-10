@@ -56,4 +56,23 @@ pub enum fun {
     class { object: u8 },
 }
 
+// `FooError` is turned into `FooException`, so this enum will end up
+// being named just `Exception`. Without special care, this will clash
+// with `kotlin.Exception` class.
+#[allow(non_camel_case_types)]
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("class?")]
+    class { object: u8 },
+}
+
+#[allow(non_camel_case_types)]
+pub struct r#else(pub r#return);
+uniffi::custom_newtype!(r#else, r#return);
+
+#[uniffi::export]
+pub fn get_else(e: r#else) -> r#else {
+    e
+}
+
 uniffi::include_scaffolding!("keywords");

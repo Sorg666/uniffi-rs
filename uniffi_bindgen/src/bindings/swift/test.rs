@@ -2,10 +2,9 @@
 License, v. 2.0. If a copy of the MPL was not distributed with this
 * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::{
-    bindings::{RunScriptOptions, TargetLanguage},
-    library_mode::generate_bindings,
-};
+use crate::bindings::RunScriptOptions;
+use crate::library_mode::generate_bindings;
+
 use anyhow::{bail, Context, Result};
 use camino::{Utf8Path, Utf8PathBuf};
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
@@ -36,7 +35,7 @@ pub fn run_script(
     args: Vec<String>,
     options: &RunScriptOptions,
 ) -> Result<()> {
-    let script_path = Utf8Path::new(".").join(script_file).canonicalize_utf8()?;
+    let script_path = Utf8Path::new(script_file).canonicalize_utf8()?;
     let test_helper = UniFFITestHelper::new(crate_name)?;
     let out_dir = test_helper.create_out_dir(tmp_dir, &script_path)?;
     let cdylib_path = test_helper.copy_cdylib_to_out_dir(&out_dir)?;
@@ -125,20 +124,20 @@ struct GeneratedSources {
 }
 
 impl GeneratedSources {
-    fn new(crate_name: &str, cdylib_path: &Utf8Path, out_dir: &Utf8Path) -> Result<Self> {
+    fn new(package_name: &str, cdylib_path: &Utf8Path, out_dir: &Utf8Path) -> Result<Self> {
         let sources = generate_bindings(
             cdylib_path,
             None,
-            &[TargetLanguage::Swift],
+            &super::SwiftBindingGenerator,
             None,
             out_dir,
             false,
         )?;
         let main_source = sources
             .iter()
-            .find(|s| s.package.name == crate_name)
+            .find(|s| s.package_name.as_deref() == Some(package_name))
             .unwrap();
-        let main_module = main_source.config.bindings.swift.module_name();
+        let main_module = main_source.config.module_name();
         let modulemap_glob = glob(&out_dir.join("*.modulemap"))?;
         let module_map = match modulemap_glob.len() {
             0 => bail!("No modulemap files found in {out_dir}"),

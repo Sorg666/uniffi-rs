@@ -56,6 +56,13 @@ pub struct RustCallStatus {
 }
 
 impl RustCallStatus {
+    pub fn new() -> Self {
+        Self {
+            code: RustCallStatusCode::Success,
+            error_buf: MaybeUninit::new(RustBuffer::new()),
+        }
+    }
+
     pub fn cancelled() -> Self {
         Self {
             code: RustCallStatusCode::Cancelled,
@@ -97,6 +104,20 @@ pub enum RustCallStatusCode {
     /// This is only returned for async functions and only if the bindings code uses the
     /// [rust_future_cancel] call.
     Cancelled = 3,
+}
+
+impl TryFrom<i8> for RustCallStatusCode {
+    type Error = i8;
+
+    fn try_from(value: i8) -> Result<Self, i8> {
+        match value {
+            0 => Ok(Self::Success),
+            1 => Ok(Self::Error),
+            2 => Ok(Self::UnexpectedError),
+            3 => Ok(Self::Cancelled),
+            n => Err(n),
+        }
+    }
 }
 
 /// Handle a scaffolding calls

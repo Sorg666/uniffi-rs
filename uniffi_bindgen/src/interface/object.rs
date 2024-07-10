@@ -60,7 +60,8 @@
 use anyhow::Result;
 use uniffi_meta::Checksum;
 
-use super::ffi::{FfiArgument, FfiFunction, FfiType};
+use super::callbacks;
+use super::ffi::{FfiArgument, FfiCallbackFunction, FfiFunction, FfiStruct, FfiType};
 use super::function::{Argument, Callable};
 use super::{AsType, ObjectImpl, Type, TypeIterator};
 
@@ -132,6 +133,10 @@ impl Object {
 
     pub fn has_callback_interface(&self) -> bool {
         self.imp.has_callback_interface()
+    }
+
+    pub fn has_async_method(&self) -> bool {
+        self.methods.iter().any(Method::is_async)
     }
 
     pub fn constructors(&self) -> Vec<&Constructor> {
@@ -219,8 +224,11 @@ impl Object {
         self.ffi_func_free.return_type = None;
         self.ffi_func_free.is_object_free_function = true;
         if self.has_callback_interface() {
-            self.ffi_init_callback =
-                Some(FfiFunction::callback_init(&self.module_path, &self.name));
+            self.ffi_init_callback = Some(FfiFunction::callback_init(
+                &self.module_path,
+                &self.name,
+                callbacks::vtable_name(&self.name),
+            ));
         }
 
         for cons in self.constructors.iter_mut() {
@@ -234,6 +242,41 @@ impl Object {
         }
 
         Ok(())
+    }
+
+    /// For trait interfaces, FfiCallbacks to define for our methods, otherwise an empty vec.
+    pub fn ffi_callbacks(&self) -> Vec<FfiCallbackFunction> {
+        if self.is_trait_interface() {
+            callbacks::ffi_callbacks(&self.name, &self.methods)
+        } else {
+            vec![]
+        }
+    }
+
+    /// For trait interfaces, the VTable FFI type
+    pub fn vtable(&self) -> Option<FfiType> {
+        self.is_trait_interface()
+            .then(|| FfiType::Struct(callbacks::vtable_name(&self.name)))
+    }
+
+    /// For trait interfaces, the VTable struct to define.  Otherwise None.
+    pub fn vtable_definition(&self) -> Option<FfiStruct> {
+        self.is_trait_interface()
+            .then(|| callbacks::vtable_struct(&self.name, &self.methods))
+    }
+
+    /// Vec of (ffi_callback_name, method) pairs
+    pub fn vtable_methods(&self) -> Vec<(FfiCallbackFunction, &Method)> {
+        self.methods
+            .iter()
+            .enumerate()
+            .map(|(i, method)| {
+                (
+                    callbacks::method_ffi_callback(&self.name, method, i),
+                    method,
+                )
+            })
+            .collect()
     }
 
     pub fn iter_types(&self) -> TypeIterator<'_> {
@@ -312,6 +355,7 @@ pub struct Constructor {
     pub(super) name: String,
     pub(super) object_name: String,
     pub(super) object_module_path: String,
+    pub(super) is_async: bool,
     pub(super) arguments: Vec<Argument>,
     // We don't include the FFIFunc in the hash calculation, because:
     //  - it is entirely determined by the other fields,
@@ -377,8 +421,10 @@ impl Constructor {
 
     fn derive_ffi_func(&mut self) {
         assert!(!self.ffi_func.name().is_empty());
-        self.ffi_func.arguments = self.arguments.iter().map(Into::into).collect();
-        self.ffi_func.return_type = Some(FfiType::RustArcPtr(self.object_name.clone()));
+        self.ffi_func.init(
+            Some(FfiType::RustArcPtr(self.object_name.clone())),
+            self.arguments.iter().map(Into::into),
+        );
     }
 
     pub fn iter_types(&self) -> TypeIterator<'_> {
@@ -394,11 +440,13 @@ impl From<uniffi_meta::ConstructorMetadata> for Constructor {
 
         let ffi_func = FfiFunction {
             name: ffi_name,
+            is_async: meta.is_async,
             ..FfiFunction::default()
         };
         Self {
             name: meta.name,
             object_name: meta.self_name,
+            is_async: meta.is_async,
             object_module_path: meta.module_path,
             arguments,
             ffi_func,
@@ -528,6 +576,11 @@ impl Method {
                 .chain(self.return_type.iter().flat_map(Type::iter_types)),
         )
     }
+
+    /// For async callback interface methods, the FFI struct to pass to the completion function.
+    pub fn foreign_future_ffi_result_struct(&self) -> FfiStruct {
+        callbacks::foreign_future_ffi_result_struct(self.return_type.as_ref().map(FfiType::from))
+    }
 }
 
 impl From<uniffi_meta::MethodMetadata> for Method {
@@ -566,17 +619,19 @@ impl From<uniffi_meta::TraitMethodMetadata> for Method {
     fn from(meta: uniffi_meta::TraitMethodMetadata) -> Self {
         let ffi_name = meta.ffi_symbol_name();
         let checksum_fn_name = meta.checksum_symbol_name();
+        let is_async = meta.is_async;
         let return_type = meta.return_type.map(Into::into);
         let arguments = meta.inputs.into_iter().map(Into::into).collect();
         let ffi_func = FfiFunction {
             name: ffi_name,
+            is_async,
             ..FfiFunction::default()
         };
         Self {
             name: meta.name,
             object_name: meta.trait_name,
             object_module_path: meta.module_path,
-            is_async: false,
+            is_async,
             arguments,
             return_type,
             docstring: meta.docstring.clone(),
@@ -647,7 +702,7 @@ impl Callable for Constructor {
     }
 
     fn is_async(&self) -> bool {
-        false
+        self.is_async
     }
 }
 
@@ -666,6 +721,10 @@ impl Callable for Method {
 
     fn is_async(&self) -> bool {
         self.is_async
+    }
+
+    fn takes_self(&self) -> bool {
+        true
     }
 }
 

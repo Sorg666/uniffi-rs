@@ -9,7 +9,7 @@ def _uniffi_future_callback_t(return_type):
     """
     Factory function to create callback function types for async functions
     """
-    return ctypes.CFUNCTYPE(None, ctypes.c_size_t, return_type, _UniffiRustCallStatus)
+    return ctypes.CFUNCTYPE(None, ctypes.c_uint64, return_type, _UniffiRustCallStatus)
 
 def _uniffi_load_indirect():
     """
@@ -56,12 +56,37 @@ def _uniffi_check_api_checksums(lib):
 # This is an implementation detail which will be called internally by the public API.
 
 _UniffiLib = _uniffi_load_indirect()
-{%- for func in ci.iter_ffi_function_definitions() %}
+
+{%- for def in ci.ffi_definitions() %}
+{%- match def %}
+{%- when FfiDefinition::CallbackFunction(callback) %}
+{{ callback.name()|ffi_callback_name }} = ctypes.CFUNCTYPE(
+    {%- match callback.return_type() %}
+    {%- when Some(return_type) %}{{ return_type|ffi_type_name }},
+    {%- when None %}None,
+    {%- endmatch %}
+    {%- for arg in callback.arguments() -%}
+    {{ arg.type_().borrow()|ffi_type_name }},
+    {%- endfor -%}
+    {%- if callback.has_rust_call_status_arg() %}
+    ctypes.POINTER(_UniffiRustCallStatus),
+    {%- endif %}
+)
+{%- when FfiDefinition::Struct(ffi_struct) %}
+class {{ ffi_struct.name()|ffi_struct_name }}(ctypes.Structure):
+    _fields_ = [
+        {%- for field in ffi_struct.fields() %}
+        ("{{ field.name()|var_name }}", {{ field.type_().borrow()|ffi_type_name }}),
+        {%- endfor %}
+    ]
+{%- when FfiDefinition::Function(func) %}
 _UniffiLib.{{ func.name() }}.argtypes = (
     {%- call py::arg_list_ffi_decl(func) -%}
 )
 _UniffiLib.{{ func.name() }}.restype = {% match func.return_type() %}{% when Some with (type_) %}{{ type_|ffi_type_name }}{% when None %}None{% endmatch %}
+{%- endmatch %}
 {%- endfor %}
+
 {# Ensure to call the contract verification only after we defined all functions. -#}
 _uniffi_check_contract_api_version(_UniffiLib)
 _uniffi_check_api_checksums(_UniffiLib)

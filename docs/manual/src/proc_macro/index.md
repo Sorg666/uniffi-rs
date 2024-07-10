@@ -138,6 +138,72 @@ fn do_something(foo: MyFooRef) {
 }
 ```
 
+### Default values
+
+Exported functions/methods can have default values using the `default` argument of the attribute macro that wraps them.
+`default` inputs a comma-separated list of `[name]=[value]` items.
+
+```rust
+#[uniffi::export(default(text = " ", max_splits = None))]
+pub fn split(
+    text: String,
+    sep: String,
+    max_splits: Option<u32>,
+) -> Vec<String> {
+  ...
+}
+
+#[derive(uniffi::Object)]
+pub struct TextSplitter { ... }
+
+#[uniffi::export]
+impl TextSplitter {
+    #[uniffi::constructor(default(ignore_unicode_errors = false))]
+    fn new(ignore_unicode_errors: boolean) -> Self {
+        ...
+    }
+
+    #[uniffi::method(default(text = " ", max_splits = None))]
+    fn split(
+        text: String,
+        sep: String,
+        max_splits: Option<u32>,
+    ) -> Vec<String> {
+      ...
+    }
+}
+```
+
+Supported default values:
+  - String, integer, float, and boolean literals
+  - `[]` for empty Vecs
+  - `Option<T>` allows either `None` or `Some(T)`
+
+### Renaming functions, methods and constructors
+
+A single exported function can specify an alternate name to be used by the bindings by specifying a `name` attribute.
+
+```rust
+#[uniffi::export(name = "something")]
+fn do_something() {
+}
+```
+will be exposed to foreign bindings as a namespace function `something()`
+
+You can also rename constructors and methods:
+```rust
+#[uniffi::export]
+impl Something {
+    // Set this as the default constructor by naming it `new`
+    #[uniffi::constructor(name = "new")]
+    fn make_new() -> Arc<Self> { ... }
+
+    // Expose this as `obj.something()`
+    #[uniffi::method(name = "something")]
+    fn do_something(&self) { }
+}
+```
+
 ## The `uniffi::Record` derive
 
 The `Record` derive macro exposes a `struct` with named fields over FFI. All types that are
@@ -154,8 +220,7 @@ will fail).
 pub struct MyRecord {
     pub field_a: String,
     pub field_b: Option<Arc<MyObject>>,
-    // Fields can have a default value.
-    // Currently, only string, integer, float and boolean literals are supported as defaults.
+    // Fields can have a default values
     #[uniffi(default = "hello")]
     pub greeting: String,
     #[uniffi(default = true)]
@@ -185,9 +250,66 @@ pub enum MyEnum {
 }
 ```
 
+### Variant Discriminants
+
 Variant discriminants are accepted by the macro but how they are used depends on the bindings.
-Most would be likely ignore it in the example above due to the nature of the enum,
-but some expose it for simple "unit" enums.
+
+For example this enum:
+
+```rust
+#[derive(uniffi::Enum)]
+pub enum MyEnum {
+    Foo = 3,
+    Bar = 4,
+}
+```
+
+would give you in Kotlin & Swift:
+
+```swift
+// kotlin
+enum class MyEnum {
+    FOO,
+    BAR;
+    companion object
+}
+// swift
+public enum MyEnum {
+    case foo
+    case bar
+}
+```
+
+which means you cannot use the platforms helpful methods like `value` or `rawValue` to get the underlying discriminants. Adding a `repr` will allow the type to be defined in the foreign bindings.
+
+For example:
+
+```rust
+// added the repr(u8), also u16 -> u64 supported
+#[repr(u8)]
+#[derive(uniffi::Enum)]
+pub enum MyEnum {
+    Foo = 3,
+    Bar = 4,
+}
+```
+
+will now generate:
+
+```swift
+// kotlin
+enum class MyEnum(val value: UByte) {
+    FOO(3u),
+    BAR(4u);
+    companion object
+}
+
+// swift
+public enum MyEnum : UInt8 {
+    case foo = 3
+    case bar = 4
+}
+```
 
 ## The `uniffi::Object` derive
 
@@ -287,9 +409,8 @@ pub enum MyError {
         index: u32,
         size: u32,
     }
-    Generic {
-        message: String,
-    }
+    // tuple-enums work.
+    Generic(String),
 }
 
 #[uniffi::export]
@@ -301,8 +422,7 @@ fn do_thing() -> Result<(), MyError> {
 You can also use the helper attribute `#[uniffi(flat_error)]` to expose just the variants but none of the fields.
 In this case the error will be serialized using Rust's `ToString` trait
 and will be accessible as the only field on each of the variants.
-For flat errors your variants can have unnamed fields,
-and the types of the fields don't need to implement any special traits.
+The types of the fields can be any UniFFI supported type and don't need to implement any special traits.
 
 ```rust
 #[derive(uniffi::Error)]
@@ -372,3 +492,10 @@ to fix this limitation soon.
 In addition to the per-item limitations of the macros presented above, there is also currently a
 global restriction: You can only use the proc-macros inside a crate whose name is the same as the
 namespace in your UDL file. This restriction will be lifted in the future.
+
+### Conditional compilation
+`uniffi::constructor|method` will work if wrapped with `cfg_attr` attribute:
+```rust
+#[cfg_attr(feature = "foo", uniffi::constructor)]
+```
+Other attributes are not currently supported, see [#2000](https://github.com/mozilla/uniffi-rs/issues/2000) for more details.

@@ -8,7 +8,7 @@ public struct {{ type_name }} {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init({% call swift::field_list_decl(rec) %}) {
+    public init({% call swift::field_list_decl(rec, false) %}) {
         {%- for field in rec.fields() %}
         self.{{ field.name()|var_name }} = {{ field.name()|var_name }}
         {%- endfor %}
@@ -16,6 +16,7 @@ public struct {{ type_name }} {
 }
 
 {% if !contains_object_references %}
+{% if config.experimental_sendable_value_types() %}extension {{ type_name }}: Sendable {} {% endif %}
 extension {{ type_name }}: Equatable, Hashable {
     public static func ==(lhs: {{ type_name }}, rhs: {{ type_name }}) -> Bool {
         {%- for field in rec.fields() %}

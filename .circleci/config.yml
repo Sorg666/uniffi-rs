@@ -3,19 +3,16 @@
 version: 2.1
 
 commands:
-  install-mdbook:
+  install-mkdocs:
     steps:
       - run:
           name: Install mdBook
           command: |
-            mkdir -p $HOME/.bin
-            pushd $HOME/.bin
-            # mdbook
-            curl -sfSL --retry 5 --retry-delay 10 https://github.com/rust-lang-nursery/mdBook/releases/download/v0.4.35/mdbook-v0.4.35-x86_64-unknown-linux-gnu.tar.gz | tar xz
-            # mdbook-link-check
-            curl -sfSL --retry 5 --retry-delay 10 https://github.com/Michael-F-Bryan/mdbook-linkcheck/releases/download/v0.7.7/mdbook-linkcheck.x86_64-unknown-linux-gnu.zip -o mdbook-linkcheck.zip && unzip mdbook-linkcheck.zip && chmod +x mdbook-linkcheck
-            echo 'export PATH="$HOME/.bin:$PATH"' >> $BASH_ENV
-            popd
+            sudo apt-get update -qq
+            sudo apt-get install -qy --no-install-recommends python3-pip
+            sudo apt-get clean
+            pip install -r tools/requirements_docs.txt
+
   # Our policy for updating rust versions is at https://github.com/mozilla/uniffi-rs/tree/main/docs/policies/rust-versions.md
   # See also rust-toolchain.toml in the root of this repo, which is used to specify our official target version.
   prepare-rust-target-version:
@@ -25,7 +22,7 @@ commands:
   # Our minimum supported rust version is specified here.
   prepare-rust-min-version:
     steps:
-      - run: rustup override set 1.66.0
+      - run: rustup override set 1.74.0
       - run: rustup update
   build-api-docs:
     steps:
@@ -42,7 +39,7 @@ orbs:
 jobs:
   Check Rust formatting:
     docker:
-      - image: cimg/rust:1.72
+      - image: cimg/rust:1.77.1
     resource_class: small
     steps:
       - checkout
@@ -52,7 +49,7 @@ jobs:
       - run: cargo fmt -- --check
   Lint Rust with clippy:
     docker:
-      - image: cimg/rust:1.72
+      - image: cimg/rust:1.77.1
     resource_class: small
     steps:
       - checkout
@@ -62,7 +59,7 @@ jobs:
       - run: cargo clippy --all --all-targets -- -D warnings
   Lint Rust Docs:
     docker:
-      - image: cimg/rust:1.72
+      - image: cimg/rust:1.77.1
     resource_class: small
     steps:
       - checkout
@@ -120,18 +117,21 @@ jobs:
       - run: cargo test -- --skip trybuild_ui_tests
   Deploy website:
     docker:
-      - image: cimg/rust:1.72
+      - image: cimg/rust:1.77.1
     resource_class: small
     steps:
       - checkout
-      - prepare-rust-target-version
-      - build-api-docs
-      - run: cp -r ./target/doc ./docs/manual/src/internals/api
-      - install-mdbook
-      - run: mdbook build docs/manual
-      - gh-pages/deploy:
-          build-dir: docs/manual/book/html
-          ssh-fingerprints: "ac:68:a3:78:ea:ee:00:05:30:e1:dc:1f:2e:2f:7c:81"
+      - install-mkdocs
+      # It should be possible to do something like https://github.com/jimporter/mike/issues/49
+      # So we can automagically deploy on release too!
+      - run:
+          name: Deploy docs
+          # can't use `gh-pages/deploy`, it doesn't handle the versioning.
+          command: |
+            # circle ci docs and jj both do this git config.
+            git config user.name 'uniffi-docs[bot]'
+            git config user.email 'uniffi-docs[bot]@users.noreply.github.io'
+            mike deploy next --push
 
   Deploy Docker:
     docker:
